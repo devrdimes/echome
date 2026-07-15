@@ -855,3 +855,111 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   AAA UPGRADE — PREMIUM ADDITIONS
+   ============================================================ */
+
+/* ── Enhanced sidebar ── */
+.kingdom-sidebar {
+  background: linear-gradient(180deg, rgba(10,8,14,0.99) 0%, rgba(8,7,11,0.99) 100%);
+  border-right: 1px solid rgba(201,146,42,0.1);
+  box-shadow: 6px 0 40px rgba(0,0,0,0.7), inset -1px 0 0 rgba(255,255,255,0.02);
+}
+
+/* ── Enhanced topbar ── */
+.kingdom-topbar {
+  background: rgba(8,7,11,0.88);
+  backdrop-filter: blur(24px) saturate(200%);
+  border-bottom: 1px solid rgba(201,146,42,0.07);
+  box-shadow: 0 4px 40px rgba(0,0,0,0.6), inset 0 -1px 0 rgba(201,146,42,0.04);
+}
+
+/* ── Glassmorphism card ── */
+.card-glass {
+  background: rgba(255,255,255,0.02);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.23,1,0.32,1);
+}
+.card-glass:hover {
+  border-color: rgba(240,180,41,0.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 16px 48px rgba(0,0,0,0.45), 0 0 24px rgba(240,180,41,0.06);
+  transform: translateY(-2px);
+}
+
+/* ── Text shimmer ── */
+.text-shimmer {
+  background: linear-gradient(90deg, #C9922A 0%, #F0B429 30%, #FFD878 50%, #F0B429 70%, #C9922A 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer-move 4s linear infinite;
+}
+@keyframes text-shimmer-move {
+  from { background-position: 0% center; }
+  to { background-position: 200% center; }
+}
+
+/* ── Rarity glow animations ── */
+@keyframes rarity-legendary {
+  0%, 100% { box-shadow: 0 0 8px rgba(240,180,41,0.3); }
+  50% { box-shadow: 0 0 20px rgba(240,180,41,0.7), 0 0 40px rgba(240,180,41,0.2); }
+}
+@keyframes rarity-mythic {
+  0%, 100% { box-shadow: 0 0 8px rgba(236,72,153,0.3); }
+  50% { box-shadow: 0 0 24px rgba(236,72,153,0.8), 0 0 48px rgba(236,72,153,0.25); }
+}
+@keyframes rarity-epic {
+  0%, 100% { box-shadow: 0 0 6px rgba(168,85,247,0.25); }
+  50% { box-shadow: 0 0 16px rgba(168,85,247,0.6), 0 0 32px rgba(168,85,247,0.15); }
+}
+
+/* ── Portal entrance animation ── */
+@keyframes portal-in {
+  0% { opacity: 0; transform: scale(0.95) rotateX(4deg); filter: blur(8px); }
+  100% { opacity: 1; transform: scale(1) rotateX(0deg); filter: blur(0); }
+}
+.portal-enter { animation: portal-in 0.6s cubic-bezier(0.23,1,0.32,1) forwards; }
+
+/* ── Glow text utilities ── */
+.glow-text-gold { text-shadow: 0 0 10px rgba(240,180,41,0.6), 0 0 30px rgba(240,180,41,0.3); }
+.glow-text-purple { text-shadow: 0 0 10px rgba(168,85,247,0.6), 0 0 30px rgba(168,85,247,0.3); }
+
+/* ── Magic border gradient ── */
+.border-magic::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(240,180,41,0.5), rgba(168,85,247,0.4), rgba(96,165,250,0.4), rgba(240,180,41,0.5));
+  background-size: 300% 300%;
+  animation: gradient-shift 6s ease infinite;
+  z-index: -1;
+}
+
+/* ── Upgraded scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 10px; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(201,146,42,0.5), rgba(122,91,26,0.6));
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(240,180,41,0.7), rgba(201,146,42,0.8));
+}
+
+/* ── Dot pulse ── */
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.5); opacity: 0.6; }
+}
+.animate-dot-pulse { animation: dot-pulse 2s ease-in-out infinite; }
+
+/* ── 3D perspective ── */
+.perspective-container { perspective: 1000px; }
+.preserve-3d { transform-style: preserve-3d; }
