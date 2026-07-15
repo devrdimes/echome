@@ -7,6 +7,8 @@ import GoogleProvider from "next-auth/providers/google";
  */
 export const authConfigEdge = {
   trustHost: true,
+  session: { strategy: "jwt" },
+  debug: true,
   providers: [
     GoogleProvider({
       clientId: process.env.AUTH_GOOGLE_ID!,

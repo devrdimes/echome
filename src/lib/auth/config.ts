@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 export const authConfig = {
   adapter: PrismaAdapter(prisma),
   trustHost: true,
+  session: { strategy: "jwt" },
+  debug: true,
   providers: [
     GoogleProvider({
       clientId: process.env.AUTH_GOOGLE_ID!,
