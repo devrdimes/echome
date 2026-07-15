@@ -6,10 +6,11 @@ import GoogleProvider from "next-auth/providers/google";
  * Used ONLY by middleware. The full config (with adapter) is in config.ts.
  */
 export const authConfigEdge = {
+  trustHost: true,
   providers: [
     GoogleProvider({
-      clientId: process.env.AUTH_GOOGLE_ID ?? "",
-      clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
+      clientId: process.env.AUTH_GOOGLE_ID!,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET!,
     }),
   ],
   callbacks: {
