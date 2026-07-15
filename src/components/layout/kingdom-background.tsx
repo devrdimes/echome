@@ -69,6 +69,7 @@ function CursorLight() {
     const handler = (e: MouseEvent) => { cursorX.set(e.clientX); cursorY.set(e.clientY); };
     window.addEventListener("mousemove", handler);
     return () => window.removeEventListener("mousemove", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

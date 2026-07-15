@@ -391,7 +391,7 @@ function HeroSection() {
               </span>
             </motion.h1>
             <p className="text-white/40 text-sm tracking-wide max-w-md">
-              Your kingdom's intelligence grows stronger with every reflection. The AI oracle awaits your command.
+              Your kingdom&apos;s intelligence grows stronger with every reflection. The AI oracle awaits your command.
             </p>
             <div className="flex items-center gap-3 mt-5">
               <Link href="/personality">
