@@ -295,7 +295,7 @@ model ProfileVersion {
 
 model ProfileCurrent {
   user_id            String @id @map("user_id")
-  profile_version_id String @map("profile_version_id")
+  profile_version_id String @unique @map("profile_version_id")
 
   user    User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
   version ProfileVersion @relation(fields: [profile_version_id], references: [id], onDelete: Cascade)
