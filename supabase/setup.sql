@@ -1,107 +1,140 @@
 -- =======================================================
--- Echo AI — Supabase Setup SQL
+-- Echo AI — Supabase Setup SQL  (v2 — simplified)
 -- =======================================================
--- HOW TO USE:
--- 1. Run "npx prisma migrate deploy" (or prisma db push) first
---    so Prisma creates all tables with snake_case names.
--- 2. Then run THIS file in the Supabase SQL Editor.
+-- IMPORTANT: Run "npx prisma db push" FIRST so all tables
+-- exist, THEN paste this entire file into the Supabase
+-- SQL Editor and click "Run".
 -- =======================================================
 
--- ───────────────────────────────────────────────────────
--- 1. Extensions
--- ───────────────────────────────────────────────────────
-create extension if not exists pg_trgm  with schema extensions;
-create extension if not exists vector   with schema extensions;
+-- ────────────────────────────────────────────────────────
+-- 1. Extensions  (idempotent — safe to re-run)
+-- ────────────────────────────────────────────────────────
+create extension if not exists pg_trgm;
+create extension if not exists vector;
 
--- ───────────────────────────────────────────────────────
--- 2. Enable Row Level Security on all tables
--- ───────────────────────────────────────────────────────
-do $$
-  declare t text;
-  begin
-    for t in
-      select table_name
-      from information_schema.tables
-      where table_schema = 'public'
-        and table_type   = 'BASE TABLE'
-        and table_name not in ('_prisma_migrations')
-    loop
-      execute format('alter table public.%I enable row level security', t);
-    end loop;
-  end;
-$$;
+-- ────────────────────────────────────────────────────────
+-- 2. Enable Row Level Security
+-- ────────────────────────────────────────────────────────
+alter table public.users                 enable row level security;
+alter table public.accounts              enable row level security;
+alter table public.sessions              enable row level security;
+alter table public.verification_tokens   enable row level security;
+alter table public.content_sources       enable row level security;
+alter table public.trait_claims          enable row level security;
+alter table public.profile_versions      enable row level security;
+alter table public.profile_current       enable row level security;
+alter table public.trait_links           enable row level security;
+alter table public.reflections           enable row level security;
+alter table public.future_scenarios      enable row level security;
+alter table public.goals                 enable row level security;
+alter table public.habits                enable row level security;
+alter table public.habit_logs            enable row level security;
+alter table public.user_achievements     enable row level security;
+alter table public.user_missions         enable row level security;
+alter table public.season_progress       enable row level security;
+alter table public.share_cards           enable row level security;
+alter table public.subscriptions         enable row level security;
+alter table public.ai_jobs               enable row level security;
+alter table public.audit_logs            enable row level security;
+alter table public.notifications         enable row level security;
+alter table public.user_feature_flags    enable row level security;
 
--- ───────────────────────────────────────────────────────
--- 3. Service-role bypass (used by Prisma / server)
---    The DATABASE_URL connection uses the service role,
---    which bypasses RLS automatically. These policies are
---    defence-in-depth for direct queries.
--- ───────────────────────────────────────────────────────
+-- ────────────────────────────────────────────────────────
+-- 3. Service-role bypass policies
+--    Prisma connects via service role → bypasses RLS.
+--    These policies are defence-in-depth only.
+-- ────────────────────────────────────────────────────────
+create policy "service role bypass" on public.users
+  for all to service_role using (true) with check (true);
 
--- Helper: create a service-role bypass policy for a table
-create or replace function create_service_bypass(tbl text) returns void
-  language plpgsql as $$
-  begin
-    execute format(
-      'create policy "service role full access" on public.%I
-         for all to service_role using (true) with check (true)',
-      tbl
-    );
-  exception when duplicate_object then null;
-  end;
-$$;
+create policy "service role bypass" on public.accounts
+  for all to service_role using (true) with check (true);
 
-select create_service_bypass('users');
-select create_service_bypass('accounts');
-select create_service_bypass('sessions');
-select create_service_bypass('verification_tokens');
-select create_service_bypass('content_sources');
-select create_service_bypass('trait_claims');
-select create_service_bypass('profile_versions');
-select create_service_bypass('profile_current');
-select create_service_bypass('trait_links');
-select create_service_bypass('reflections');
-select create_service_bypass('future_scenarios');
-select create_service_bypass('goals');
-select create_service_bypass('habits');
-select create_service_bypass('habit_logs');
-select create_service_bypass('user_achievements');
-select create_service_bypass('user_missions');
-select create_service_bypass('season_progress');
-select create_service_bypass('share_cards');
-select create_service_bypass('subscriptions');
-select create_service_bypass('ai_jobs');
-select create_service_bypass('audit_logs');
-select create_service_bypass('notifications');
-select create_service_bypass('user_feature_flags');
+create policy "service role bypass" on public.sessions
+  for all to service_role using (true) with check (true);
 
-drop function create_service_bypass;
+create policy "service role bypass" on public.verification_tokens
+  for all to service_role using (true) with check (true);
 
--- ───────────────────────────────────────────────────────
--- 4. Public read policies (no auth needed)
--- ───────────────────────────────────────────────────────
+create policy "service role bypass" on public.content_sources
+  for all to service_role using (true) with check (true);
 
--- Share cards are publicly readable via share_id
-create policy "share_cards public read"
-  on public.share_cards for select
-  using (true);
+create policy "service role bypass" on public.trait_claims
+  for all to service_role using (true) with check (true);
 
--- ───────────────────────────────────────────────────────
--- 5. Indexes for full-text search (pg_trgm)
--- ───────────────────────────────────────────────────────
+create policy "service role bypass" on public.profile_versions
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.profile_current
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.trait_links
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.reflections
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.future_scenarios
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.goals
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.habits
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.habit_logs
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.user_achievements
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.user_missions
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.season_progress
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.share_cards
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.subscriptions
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.ai_jobs
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.audit_logs
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.notifications
+  for all to service_role using (true) with check (true);
+
+create policy "service role bypass" on public.user_feature_flags
+  for all to service_role using (true) with check (true);
+
+-- ────────────────────────────────────────────────────────
+-- 4. Public read — share cards (accessible without login)
+-- ────────────────────────────────────────────────────────
+create policy "share cards public read" on public.share_cards
+  for select using (true);
+
+-- ────────────────────────────────────────────────────────
+-- 5. Full-text search indexes (pg_trgm)
+-- ────────────────────────────────────────────────────────
 create index if not exists idx_reflections_body_trgm
-  on public.reflections using gin (body gin_trgm_ops);
+  on public.reflections using gin(body gin_trgm_ops);
 
 create index if not exists idx_content_sources_body_trgm
-  on public.content_sources using gin (body gin_trgm_ops);
+  on public.content_sources using gin(body gin_trgm_ops);
 
 create index if not exists idx_trait_claims_label_trgm
-  on public.trait_claims using gin (label gin_trgm_ops);
+  on public.trait_claims using gin(label gin_trgm_ops);
 
--- ───────────────────────────────────────────────────────
+-- ────────────────────────────────────────────────────────
 -- 6. Updated-at trigger function
--- ───────────────────────────────────────────────────────
-create or replace function set_updated_at()
+-- ────────────────────────────────────────────────────────
+create or replace function public.set_updated_at()
   returns trigger language plpgsql as $$
   begin
     new.updated_at = now();
@@ -109,33 +142,47 @@ create or replace function set_updated_at()
   end;
 $$;
 
--- Apply to tables that have updated_at (Prisma handles this via @updatedAt,
--- but this trigger ensures it works for direct SQL updates too)
-do $$
-  declare t text;
-  begin
-    for t in select unnest(array[
-      'users', 'content_sources', 'reflections', 'goals',
-      'habits', 'user_missions', 'season_progress', 'subscriptions',
-      'ai_jobs'
-    ])
-    loop
-      execute format(
-        'create or replace trigger trg_%s_updated_at
-           before update on public.%I
-           for each row execute procedure set_updated_at()',
-        replace(t, '-', '_'), t
-      );
-    end loop;
-  end;
-$$;
+create or replace trigger trg_users_updated_at
+  before update on public.users
+  for each row execute function public.set_updated_at();
 
--- ───────────────────────────────────────────────────────
--- Done!
--- ───────────────────────────────────────────────────────
--- Verification: check all tables have RLS enabled
+create or replace trigger trg_content_sources_updated_at
+  before update on public.content_sources
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_reflections_updated_at
+  before update on public.reflections
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_goals_updated_at
+  before update on public.goals
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_habits_updated_at
+  before update on public.habits
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_user_missions_updated_at
+  before update on public.user_missions
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_season_progress_updated_at
+  before update on public.season_progress
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_subscriptions_updated_at
+  before update on public.subscriptions
+  for each row execute function public.set_updated_at();
+
+create or replace trigger trg_ai_jobs_updated_at
+  before update on public.ai_jobs
+  for each row execute function public.set_updated_at();
+
+-- ────────────────────────────────────────────────────────
+-- 7. Verify — should show rowsecurity = true for all rows
+-- ────────────────────────────────────────────────────────
 select tablename, rowsecurity
 from pg_tables
 where schemaname = 'public'
-  and tablename != '_prisma_migrations'
+  and tablename  != '_prisma_migrations'
 order by tablename;
