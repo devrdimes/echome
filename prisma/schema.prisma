@@ -1,0 +1,656 @@
+﻿// Echo AI — Prisma schema for PostgreSQL (Supabase)
+// Designed for: append-only version graph for personality profiles,
+// indexed lookup paths, safe cascade deletes, typed JSON for AI output.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = ["pg_trgm", "vector"]
+}
+
+// ---------------------------------------------------------------------------
+// Enthusiastiem: enum tier (free / pro / ultimate)
+// ---------------------------------------------------------------------------
+enum PlanTier {
+  FREE
+  PRO
+  ULTIMATE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  PAUSED
+  INCOMPLETE
+}
+
+enum ContentSort {
+  CONVERSATION
+  WRITING
+  VOICE
+  JOURNAL
+  FEEDBACK
+  BEHAVIOR
+}
+
+enum ProfileStatus {
+  DRAFT
+  GENERATING
+  READY
+  FAILED
+}
+
+enum ReflectionMood {
+  VERY_LOW
+  LOW
+  NEUTRAL
+  HIGH
+  VERY_HIGH
+}
+
+enum HabitStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum SortOfCompletion {
+  DONE
+  SKIPPED
+  PARTIAL
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AchievementKind {
+  FIRST_REPORT
+  STREAK_7
+  STREAK_30
+  STREAK_100
+  REFLECTION_10
+  REFLECTION_50
+  HABIT_MASTER
+  GOAL_REACHED
+  SHARED_REPORT
+  ALL_SECTIONS
+  EARLY_ADOPTER
+}
+
+enum SeasonName {
+  SPRING
+  SUMMER
+  AUTUMN
+  WINTER
+}
+
+enum AIJobState {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+// ---------------------------------------------------------------------------
+// Map: auth.User -> Account -> Session (Auth.js Core spec)
+// ---------------------------------------------------------------------------
+model User {
+  id            String   @id @default(cuid())
+  name          String?  @db.VarChar(120)
+  email         String   @unique @db.Citext
+  emailVerified DateTime?
+  image         String?  @db.VarChar(2048)
+  role          Role     @default(USER)
+
+  // Gamification snapshot (denormalized for fast profile header reads)
+  totalXp        Int      @default(0)
+  level          Int      @default(1)
+  currentStreak Int      @default(0)
+  longestStreak  Int     @default(0)
+  lastStreakDay  DateTime?
+
+  // Entitlements
+  planTier          PlanTier          @default(FREE)
+  subscription      Subscription?
+  subscriptionStatus SubscriptionStatus @default(ACTIVE)
+  trialEndsAt       DateTime?
+
+  // Feature usage caps (reset by stripe webhook / cron)
+  reportsGeneratedThisCycle Int @default(0)
+  reflectionsThisCycle      Int @default(0)
+  futureSimsThisCycle       Int @default(0)
+  cycleStartedAt            DateTime @default(now())
+
+  // Relations
+  accounts        Account[]
+  sessions        Session[]
+  content         ContentSource[]
+  traitClaims     TraitClaim[]
+  profileVersions ProfileVersion[]
+  profileCurrent  ProfileCurrent?
+  reflections     Reflection[]
+  futureScenarios FutureScenario[]
+  habits Habit[]
+  habitLogs       HabitLog[]
+  goals Goal[]
+  achievements    UserAchievement[]
+  missions        UserMission[]
+  seasonProgress  SeasonProgress[]
+  shareCards      ShareCard[]
+  auditLogs       AuditLog[]
+  aiJobs          AIJob[]
+  notifications   Notification[]
+  featureFlags    UserFeatureFlag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([planTier])
+  @@index([subscriptionStatus])
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// Content ingestion: every input channel becomes a ContentSource row.
+// ----------------------------------------------------------------------------
+model ContentSource {
+  id        String       @id @default(cuid())
+  userId    String
+  sort      ContentSort
+  // Nullable for soft deletion & anonymized contributions
+  title     String?     @db.VarChar(200)
+  body      String      @db.Text
+  // Optional structured metadata about source (fileUrl, channel, language)
+  metadata  Json        @default("{}")
+  // True if user has revoked this source; AI should not see it again
+  active    Boolean     @default(true)
+  // Token estimate written by ingestion service (helps cost guardrail)
+  tokenEstimate Int     @default(0)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  traitClaims  TraitClaim[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, sort, active])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// TraitClaim: atomic fact extracted from content by AI.
+// Each claim pools evidence (quote text) + a normalized trait label.
+// This lets us cite sources on the report & resolves "did the model hallucinate."
+// ---------------------------------------------------------------------------
+enum TraitCategory {
+  COMMUNICATION
+  LEADERSHIP
+  LEARNING
+  RELATIONSHIP
+  EMOTIONAL
+  DECISION_MAKING
+  STRESS
+  BLIND_SPOT
+  HIDDEN_STRENGTH
+  GROWTH
+  CORE
+}
+
+model TraitClaim {
+  id          String     @id @default(cuid())
+  userId      String
+  sourceId    String
+  category    TraitCategory
+  label       String     @db.VarChar(120)  // e.g. "Direct communicator"
+  description String     @db.Text
+  confidence  Float      @default(0.5)      // 0..1
+  quote       String?    @db.Text          // supporting excerpt
+  polarity    Float      @default(0)        // -1..1 affective valence
+
+  ContentSource ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileLinks   TraitLink[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, category])
+  @@index([sourceId])
+}
+
+// ---------------------------------------------------------------------------
+// Personality profile version graph.
+// Each ProfileVersion is immutable; ProfileCurrent points to active one.
+// TraitLink lets multiple TraitClaims back a single trait section.
+// ---------------------------------------------------------------------------
+model ProfileVersion {
+  id         String       @id @default(cuid())
+  userId     String
+  version    Int
+  status     ProfileStatus @default(DRAFT)
+  // Full structured report (typed JSON, validated by zod at write time)
+  report     Json         @default("{}")
+  // Concise summary used for card previews & quick display
+  summary    String       @db.Text
+  // Confidence score aggregate (0..1)
+  confidence Float        @default(0.5)
+  // Source annotation ids that fed this version
+  sourceIds  String[]     @default([])
+  // Compiled token/cost
+  tokenUsage Int          @default(0)
+  costUsd    Float        @default(0)
+  // Model snapshot for reproducibility
+  modelTag   String       @db.VarChar(120)
+  errorMessage String?    @db.Text
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  traitLinks   TraitLink[]
+  currentFor   ProfileCurrent?
+  shareCards   ShareCard[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, version])
+  @@index([userId, status])
+}
+
+model ProfileCurrent {
+  userId          String   @id
+  profileVersionId String
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version ProfileVersion @relation(fields: [profileVersionId], references: [id], onDelete: Cascade)
+  updatedAt DateTime    @updatedAt
+}
+
+model TraitLink {
+  id             String     @id @default(cuid())
+  profileVersionId String
+  traitClaimId   String
+  weight         Float      @default(1)  // 0..1, how strongly this claim supports the trait
+
+  version     ProfileVersion @relation(fields: [profileVersionId], references: [id], onDelete: Cascade)
+  traitClaim  TraitClaim     @relation(fields: [traitClaimId], references: [id], onDelete: Cascade)
+
+  @@unique([profileVersionId, traitClaimId])
+  @@index([traitClaimId])
+}
+
+// ---------------------------------------------------------------------------
+// AI Reflection: daily check-in / journal entry
+// ---------------------------------------------------------------------------
+model Reflection {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date
+  body      String   @db.Text
+  mood      ReflectionMood @default(NEUTRAL)
+  // Typed AI analysis (patterns, emotions, progress, habits, mental models)
+  analysis  Json     @default("{}")
+  analyzed  Boolean  @default(false)
+  // Optional manual tags
+  tags      String[] @default([])
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ---------------------------------------------------------------------------
+// AI Future Scenario simulations
+// ---------------------------------------------------------------------------
+model FutureScenario {
+  id           String   @id @default(cuid())
+  userId       String
+  goalId       String?
+  title        String   @db.VarChar(200)
+  scenario     String   @db.Text
+  // Confidence band: { lowerBound, midpoint, upperBound, width }
+  confidence   Json     @default("{}")
+  // Branches: array of { outcome, probability, explanation, dependencies }
+  branches     Json     @default("[]")
+  // Needs vs. has (resources, blockers)
+  assumptions  String[] @default([])
+  // Disclaimer snapshot it was shown with
+  disclaimerSnapshot String @db.Text
+  modelTag     String   @db.VarChar(120)
+  tokenUsage   Int      @default(0)
+  costUsd      Float    @default(0)
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal Goal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String   @db.VarChar(200)
+  description String   @db.Text
+  // daily, weekly, monthly, quarterly, yearly, custom
+  cadence     String   @default("weekly")
+  // numeric target if measurable
+  targetMetric String?  @db.VarChar(60)
+  targetValue Float?
+  progress    Float    @default(0)
+  achieved    Boolean  @default(false)
+  achievedAt  DateTime?
+  archived    Boolean  @default(false)
+  // Linked habit ids (just for visibility in UI, not FK)
+  habitIds    String[] @default([])
+  // UX-relevant metadata
+  color       String?  @db.VarChar(20)
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  futureScenarios FutureScenario[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, archived])
+}
+
+// ---------------------------------------------------------------------------
+// AI Habit Coach: habits + daily habit logs
+// ---------------------------------------------------------------------------
+model Habit {
+  id          String       @id @default(cuid())
+  userId      String
+  title       String       @db.VarChar(160)
+  description String?      @db.Text
+  // daily, weekly, custom cron-ish
+  cadence     String       @default("daily")
+  // Schedule config — JSON like { daysOfWeek: [1..7], timesOfDay: ["morning"] }
+  schedule    Json         @default("{}")
+  // Adaptive plan: difficulty 1..5, the coach can auto-adjust
+  difficulty  Int          @default(3)
+  status      HabitStatus  @default(ACTIVE)
+  // Track total completions & best streak
+  totalDone   Int          @default(0)
+  bestStreak  Int          @default(0)
+  currentStreak Int        @default(0)
+  // Linked goal
+  goalId      String?
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs HabitLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model HabitLog {
+  id         String           @id @default(cuid())
+  userId     String
+  habitId    String
+  date       DateTime         @db.Date
+  completion SortOfCompletion @default(DONE)
+  note       String?          @db.Text
+  // AI suggestion written that day (e.g. "skip was fine bc of sleep")
+  aiNote     String?          @db.Text
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([habitId, date])
+  @@index([userId, date])
+}
+
+// ---------------------------------------------------------------------------
+// Gamification: achievements, weekly missions, seasonal rewards
+// ---------------------------------------------------------------------------
+model UserAchievement {
+  id        String          @id @default(cuid())
+  userId    String
+  kind      AchievementKind
+  // XP reward at time of unlock (snapshot, can change later w/o affecting)
+  xpAwarded Int             @default(0)
+  metadata  Json            @default("{}")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  unlockedAt DateTime @default(now())
+
+  @@unique([userId, kind])
+  @@index([userId])
+}
+
+model UserMission {
+  id          String   @id @default(cuid())
+  userId      String
+  // Stable mission id (e.g. "2026-w28-streak")
+  missionKey  String   @db.VarChar(60)
+  title       String   @db.VarChar(160)
+  description String   @db.Text
+  // Type discriminator: streak, habit_count, reflection_count, etc.
+  type        String   @db.VarChar(40)
+  target      Int      @default(1)
+  progress    Int      @default(0)
+  completed   Boolean  @default(false)
+  claimed     Boolean  @default(false)
+  // XP awarded when claimed
+  xpReward    Int      @default(0)
+  // ISO week anchor (e.g. 2026-W28)
+  weekKey     String   @db.VarChar(10)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, missionKey])
+  @@index([userId, weekKey])
+}
+
+model SeasonProgress {
+  id        String     @id @default(cuid())
+  userId    String
+  season    SeasonName
+  year      Int
+  xpThisSeason Int     @default(0)
+  tierReached  Int      @default(0)
+  rewardsClaimed String[] @default([])
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, season, year])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Share Cards: rendered cards with social previews
+// ---------------------------------------------------------------------------
+model ShareCard {
+  id               String       @id @default(cuid())
+  userId           String
+  profileVersionId String?
+  // Title, theme, format ('square'|'portrait'|'wide')
+  title           String       @db.VarChar(120)
+  format          String       @default("square")
+  accent          String       @db.VarChar(20)
+  // Public slug for shareable URL
+  shareId         String       @unique @default(cuid())
+  // Pre-signed URL or local path to rendered PNG/SVG
+  imageUrl        String?      @db.VarChar(2048)
+  // JSON snapshot of what's on card (for re-render & accessibility alt)
+  payload         Json         @default("{}")
+  // Optional: where shared to (for analytics)
+  sharedTo         String[]    @default([])
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version  ProfileVersion? @relation(fields: [profileVersionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Stripe subscription
+// ---------------------------------------------------------------------------
+model Subscription {
+  id                     String              @id @default(cuid())
+  userId                 String              @unique
+  stripeCustomerId       String              @unique
+  stripeSubscriptionId  String?             @unique
+  stripePriceId          String?             @db.VarChar(200)
+  status                 SubscriptionStatus @default(TRIALING)
+  // current_period from stripe
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAt               DateTime?
+  canceledAt             DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// AI Jobs: queue table for long-running AI work (report gen, weekly digest)
+// ---------------------------------------------------------------------------
+model AIJob {
+  id         String     @id @default(cuid())
+  userId     String
+  type       String     @db.VarChar(60)  // ("generateReport", "weeklyDigest", …)
+  state      AIJobState @default(QUEUED)
+  payload    Json       @default("{}")
+  result     Json?
+  error      String?    @db.Text
+  attempts   Int        @default(0)
+  // Exponential backoff: nextAttemptAt = now + 2^attempts * jitter
+  nextAttemptAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([state, nextAttemptAt])
+  @@index([userId, type])
+}
+
+// ---------------------------------------------------------------------------
+// AuditLog: security & compliance trail
+// ---------------------------------------------------------------------------
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  // nullable for system events
+  action    String   @db.VarChar(80)        // e.g. "report.generate", "auth.login"
+  // before/after JSON only for sensitive resource changes
+  diff      Json     @default("{}")
+  ip        String?  @db.VarChar(45)
+  userAgent String?  @db.VarChar(512)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications: in-app bell + optional email
+// ---------------------------------------------------------------------------
+model Notification {
+  id      String   @id @default(cuid())
+  userId  String
+  type    String   @db.VarChar(60)
+  title   String   @db.VarChar(200)
+  body    String   @db.Text
+  href    String?  @db.VarChar(500)
+  read    Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, read, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Feature flags per-user (overrides global defaults)
+// ---------------------------------------------------------------------------
+model UserFeatureFlag {
+  id      String  @id @default(cuid())
+  userId  String
+  flag    String  @db.VarChar(60)
+  value   Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, flag])
+}
