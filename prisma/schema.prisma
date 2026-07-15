@@ -1,7 +1,3 @@
-﻿// Echo AI — Prisma schema for PostgreSQL (Supabase)
-// Designed for: append-only version graph for personality profiles,
-// indexed lookup paths, safe cascade deletes, typed JSON for AI output.
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
@@ -11,7 +7,7 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = ["pg_trgm", "vector"]
+  extensions = [pg_trgm, vector]
 }
 
 // ---------------------------------------------------------------------------
