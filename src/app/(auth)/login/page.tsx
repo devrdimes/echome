@@ -3,9 +3,14 @@
 import { motion } from "framer-motion";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
-import { Crown, Sparkles } from "lucide-react";
+import { Crown, Sparkles, AlertCircle } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
+
   return (
     <div className="min-h-screen flex">
       {/* Left Panel */}
@@ -31,6 +36,25 @@ export default function LoginPage() {
               Your empire awaits, Ruler.
             </p>
           </div>
+
+          {/* Error Message Display */}
+          {error && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-200 text-sm flex items-start gap-3"
+            >
+              <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-400" />
+              <div>
+                <p className="font-semibold mb-1 text-red-300">Authentication Failed</p>
+                <p className="opacity-80">
+                  {error === 'OAuthCallback' ? 'Database connection failed. Please check server logs.' : 
+                   error === 'AccessDenied' ? 'Access was denied to your account.' : 
+                   `Error code: ${error}`}
+                </p>
+              </div>
+            </motion.div>
+          )}
 
           {/* Divider */}
           <div className="divider-gold" />
@@ -83,5 +107,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0F0E13] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-[#C9922A] border-t-transparent animate-spin" />
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
