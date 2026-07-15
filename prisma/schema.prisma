@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+  previewFeatures = ["fullTextSearchPostgres", "postgresqlExtensions"]
 }
 
 datasource db {
@@ -11,7 +11,7 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
-// Enthusiastiem: enum tier (free / pro / ultimate)
+// Enums
 // ---------------------------------------------------------------------------
 enum PlanTier {
   FREE
@@ -98,140 +98,6 @@ enum AIJobState {
   RETRYING
 }
 
-// ---------------------------------------------------------------------------
-// Map: auth.User -> Account -> Session (Auth.js Core spec)
-// ---------------------------------------------------------------------------
-model User {
-  id            String   @id @default(cuid())
-  name          String?  @db.VarChar(120)
-  email         String   @unique @db.Citext
-  emailVerified DateTime?
-  image         String?  @db.VarChar(2048)
-  role          Role     @default(USER)
-
-  // Gamification snapshot (denormalized for fast profile header reads)
-  totalXp        Int      @default(0)
-  level          Int      @default(1)
-  currentStreak Int      @default(0)
-  longestStreak  Int     @default(0)
-  lastStreakDay  DateTime?
-
-  // Entitlements
-  planTier          PlanTier          @default(FREE)
-  subscription      Subscription?
-  subscriptionStatus SubscriptionStatus @default(ACTIVE)
-  trialEndsAt       DateTime?
-
-  // Feature usage caps (reset by stripe webhook / cron)
-  reportsGeneratedThisCycle Int @default(0)
-  reflectionsThisCycle      Int @default(0)
-  futureSimsThisCycle       Int @default(0)
-  cycleStartedAt            DateTime @default(now())
-
-  // Relations
-  accounts        Account[]
-  sessions        Session[]
-  content         ContentSource[]
-  traitClaims     TraitClaim[]
-  profileVersions ProfileVersion[]
-  profileCurrent  ProfileCurrent?
-  reflections     Reflection[]
-  futureScenarios FutureScenario[]
-  habits Habit[]
-  habitLogs       HabitLog[]
-  goals Goal[]
-  achievements    UserAchievement[]
-  missions        UserMission[]
-  seasonProgress  SeasonProgress[]
-  shareCards      ShareCard[]
-  auditLogs       AuditLog[]
-  aiJobs          AIJob[]
-  notifications   Notification[]
-  featureFlags    UserFeatureFlag[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([planTier])
-  @@index([subscriptionStatus])
-  @@index([role])
-}
-
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?  @db.Text
-  access_token      String?  @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?  @db.Text
-  session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([provider, providerAccountId])
-  @@index([userId])
-}
-
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-}
-
-// ---------------------------------------------------------------------------
-// Content ingestion: every input channel becomes a ContentSource row.
-// ----------------------------------------------------------------------------
-model ContentSource {
-  id        String       @id @default(cuid())
-  userId    String
-  sort      ContentSort
-  // Nullable for soft deletion & anonymized contributions
-  title     String?     @db.VarChar(200)
-  body      String      @db.Text
-  // Optional structured metadata about source (fileUrl, channel, language)
-  metadata  Json        @default("{}")
-  // True if user has revoked this source; AI should not see it again
-  active    Boolean     @default(true)
-  // Token estimate written by ingestion service (helps cost guardrail)
-  tokenEstimate Int     @default(0)
-
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  traitClaims  TraitClaim[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId, sort, active])
-  @@index([createdAt])
-}
-
-// ---------------------------------------------------------------------------
-// TraitClaim: atomic fact extracted from content by AI.
-// Each claim pools evidence (quote text) + a normalized trait label.
-// This lets us cite sources on the report & resolves "did the model hallucinate."
-// ---------------------------------------------------------------------------
 enum TraitCategory {
   COMMUNICATION
   LEADERSHIP
@@ -246,407 +112,520 @@ enum TraitCategory {
   CORE
 }
 
-model TraitClaim {
-  id          String     @id @default(cuid())
-  userId      String
-  sourceId    String
-  category    TraitCategory
-  label       String     @db.VarChar(120)  // e.g. "Direct communicator"
-  description String     @db.Text
-  confidence  Float      @default(0.5)      // 0..1
-  quote       String?    @db.Text          // supporting excerpt
-  polarity    Float      @default(0)        // -1..1 affective valence
+// ---------------------------------------------------------------------------
+// Auth.js Core: User → Account → Session
+// ---------------------------------------------------------------------------
+model User {
+  id            String    @id @default(cuid())
+  name          String?   @db.VarChar(120)
+  email         String    @unique @db.VarChar(255)
+  email_verified DateTime? @map("email_verified")
+  image         String?   @db.VarChar(2048)
+  role          Role      @default(USER)
 
-  ContentSource ContentSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  profileLinks   TraitLink[]
+  // Gamification
+  total_xp       Int      @default(0) @map("total_xp")
+  level          Int      @default(1)
+  current_streak Int      @default(0) @map("current_streak")
+  longest_streak Int      @default(0) @map("longest_streak")
+  last_streak_day DateTime? @map("last_streak_day")
 
-  createdAt DateTime @default(now())
+  // Entitlements
+  plan_tier           PlanTier           @default(FREE) @map("plan_tier")
+  subscription_status SubscriptionStatus @default(ACTIVE) @map("subscription_status")
+  trial_ends_at       DateTime?          @map("trial_ends_at")
 
-  @@index([userId, category])
-  @@index([sourceId])
+  // Usage caps
+  reports_generated_this_cycle Int      @default(0) @map("reports_generated_this_cycle")
+  reflections_this_cycle       Int      @default(0) @map("reflections_this_cycle")
+  future_sims_this_cycle       Int      @default(0) @map("future_sims_this_cycle")
+  cycle_started_at             DateTime @default(now()) @map("cycle_started_at")
+
+  // Relations
+  accounts         Account[]
+  sessions         Session[]
+  subscription     Subscription?
+  content          ContentSource[]
+  trait_claims     TraitClaim[]
+  profile_versions ProfileVersion[]
+  profile_current  ProfileCurrent?
+  reflections      Reflection[]
+  future_scenarios FutureScenario[]
+  habits           Habit[]
+  habit_logs       HabitLog[]
+  goals            Goal[]
+  achievements     UserAchievement[]
+  missions         UserMission[]
+  season_progress  SeasonProgress[]
+  share_cards      ShareCard[]
+  audit_logs       AuditLog[]
+  ai_jobs          AIJob[]
+  notifications    Notification[]
+  feature_flags    UserFeatureFlag[]
+
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+
+  @@index([plan_tier])
+  @@index([subscription_status])
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                  String  @id @default(cuid())
+  user_id             String  @map("user_id")
+  type                String
+  provider            String
+  provider_account_id String  @map("provider_account_id")
+  refresh_token       String? @db.Text @map("refresh_token")
+  access_token        String? @db.Text @map("access_token")
+  expires_at          Int?    @map("expires_at")
+  token_type          String? @map("token_type")
+  scope               String?
+  id_token            String? @db.Text @map("id_token")
+  session_state       String? @map("session_state")
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now()) @map("created_at")
+
+  @@unique([provider, provider_account_id])
+  @@index([user_id])
+  @@map("accounts")
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  session_token String   @unique @map("session_token")
+  user_id       String   @map("user_id")
+  expires       DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now()) @map("created_at")
+
+  @@index([user_id])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
 }
 
 // ---------------------------------------------------------------------------
-// Personality profile version graph.
-// Each ProfileVersion is immutable; ProfileCurrent points to active one.
-// TraitLink lets multiple TraitClaims back a single trait section.
+// Content ingestion
+// ---------------------------------------------------------------------------
+model ContentSource {
+  id             String      @id @default(cuid())
+  user_id        String      @map("user_id")
+  sort           ContentSort
+  title          String?     @db.VarChar(200)
+  body           String      @db.Text
+  metadata       Json        @default("{}")
+  active         Boolean     @default(true)
+  token_estimate Int         @default(0) @map("token_estimate")
+
+  user        User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  trait_claims TraitClaim[]
+
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+
+  @@index([user_id, sort, active])
+  @@index([created_at])
+  @@map("content_sources")
+}
+
+model TraitClaim {
+  id          String        @id @default(cuid())
+  user_id     String        @map("user_id")
+  source_id   String        @map("source_id")
+  category    TraitCategory
+  label       String        @db.VarChar(120)
+  description String        @db.Text
+  confidence  Float         @default(0.5)
+  quote       String?       @db.Text
+  polarity    Float         @default(0)
+
+  content_source ContentSource @relation(fields: [source_id], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  profile_links  TraitLink[]
+
+  created_at DateTime @default(now()) @map("created_at")
+
+  @@index([user_id, category])
+  @@index([source_id])
+  @@map("trait_claims")
+}
+
+// ---------------------------------------------------------------------------
+// Personality profile version graph
 // ---------------------------------------------------------------------------
 model ProfileVersion {
-  id         String       @id @default(cuid())
-  userId     String
-  version    Int
-  status     ProfileStatus @default(DRAFT)
-  // Full structured report (typed JSON, validated by zod at write time)
-  report     Json         @default("{}")
-  // Concise summary used for card previews & quick display
-  summary    String       @db.Text
-  // Confidence score aggregate (0..1)
-  confidence Float        @default(0.5)
-  // Source annotation ids that fed this version
-  sourceIds  String[]     @default([])
-  // Compiled token/cost
-  tokenUsage Int          @default(0)
-  costUsd    Float        @default(0)
-  // Model snapshot for reproducibility
-  modelTag   String       @db.VarChar(120)
-  errorMessage String?    @db.Text
+  id          String        @id @default(cuid())
+  user_id     String        @map("user_id")
+  version     Int
+  status      ProfileStatus @default(DRAFT)
+  report      Json          @default("{}")
+  summary     String        @db.Text
+  confidence  Float         @default(0.5)
+  source_ids  String[]      @default([]) @map("source_ids")
+  token_usage Int           @default(0) @map("token_usage")
+  cost_usd    Float         @default(0) @map("cost_usd")
+  model_tag   String        @db.VarChar(120) @map("model_tag")
+  error_message String?     @db.Text @map("error_message")
 
-  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  traitLinks   TraitLink[]
-  currentFor   ProfileCurrent?
-  shareCards   ShareCard[]
+  user        User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  trait_links TraitLink[]
+  current_for ProfileCurrent?
+  share_cards ShareCard[]
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@unique([userId, version])
-  @@index([userId, status])
+  @@unique([user_id, version])
+  @@index([user_id, status])
+  @@map("profile_versions")
 }
 
 model ProfileCurrent {
-  userId          String   @id
-  profileVersionId String
+  user_id            String @id @map("user_id")
+  profile_version_id String @map("profile_version_id")
 
-  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  version ProfileVersion @relation(fields: [profileVersionId], references: [id], onDelete: Cascade)
-  updatedAt DateTime    @updatedAt
+  user    User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  version ProfileVersion @relation(fields: [profile_version_id], references: [id], onDelete: Cascade)
+
+  updated_at DateTime @updatedAt @map("updated_at")
+
+  @@map("profile_current")
 }
 
 model TraitLink {
-  id             String     @id @default(cuid())
-  profileVersionId String
-  traitClaimId   String
-  weight         Float      @default(1)  // 0..1, how strongly this claim supports the trait
+  id                 String @id @default(cuid())
+  profile_version_id String @map("profile_version_id")
+  trait_claim_id     String @map("trait_claim_id")
+  weight             Float  @default(1)
 
-  version     ProfileVersion @relation(fields: [profileVersionId], references: [id], onDelete: Cascade)
-  traitClaim  TraitClaim     @relation(fields: [traitClaimId], references: [id], onDelete: Cascade)
+  version     ProfileVersion @relation(fields: [profile_version_id], references: [id], onDelete: Cascade)
+  trait_claim TraitClaim     @relation(fields: [trait_claim_id], references: [id], onDelete: Cascade)
 
-  @@unique([profileVersionId, traitClaimId])
-  @@index([traitClaimId])
+  @@unique([profile_version_id, trait_claim_id])
+  @@index([trait_claim_id])
+  @@map("trait_links")
 }
 
 // ---------------------------------------------------------------------------
-// AI Reflection: daily check-in / journal entry
+// Reflections
 // ---------------------------------------------------------------------------
 model Reflection {
-  id        String   @id @default(cuid())
-  userId    String
-  date      DateTime @db.Date
-  body      String   @db.Text
-  mood      ReflectionMood @default(NEUTRAL)
-  // Typed AI analysis (patterns, emotions, progress, habits, mental models)
-  analysis  Json     @default("{}")
-  analyzed  Boolean  @default(false)
-  // Optional manual tags
-  tags      String[] @default([])
+  id       String         @id @default(cuid())
+  user_id  String         @map("user_id")
+  date     DateTime       @db.Date
+  body     String         @db.Text
+  mood     ReflectionMood @default(NEUTRAL)
+  analysis Json           @default("{}")
+  analyzed Boolean        @default(false)
+  tags     String[]       @default([])
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
-  @@unique([userId, date])
-  @@index([userId, date])
+  @@unique([user_id, date])
+  @@index([user_id, date])
+  @@map("reflections")
 }
 
 // ---------------------------------------------------------------------------
-// AI Future Scenario simulations
+// Future Scenarios & Goals
 // ---------------------------------------------------------------------------
 model FutureScenario {
-  id           String   @id @default(cuid())
-  userId       String
-  goalId       String?
-  title        String   @db.VarChar(200)
-  scenario     String   @db.Text
-  // Confidence band: { lowerBound, midpoint, upperBound, width }
-  confidence   Json     @default("{}")
-  // Branches: array of { outcome, probability, explanation, dependencies }
-  branches     Json     @default("[]")
-  // Needs vs. has (resources, blockers)
-  assumptions  String[] @default([])
-  // Disclaimer snapshot it was shown with
-  disclaimerSnapshot String @db.Text
-  modelTag     String   @db.VarChar(120)
-  tokenUsage   Int      @default(0)
-  costUsd      Float    @default(0)
+  id                  String   @id @default(cuid())
+  user_id             String   @map("user_id")
+  goal_id             String?  @map("goal_id")
+  title               String   @db.VarChar(200)
+  scenario            String   @db.Text
+  confidence          Json     @default("{}")
+  branches            Json     @default("[]")
+  assumptions         String[] @default([])
+  disclaimer_snapshot String   @db.Text @map("disclaimer_snapshot")
+  model_tag           String   @db.VarChar(120) @map("model_tag")
+  token_usage         Int      @default(0) @map("token_usage")
+  cost_usd            Float    @default(0) @map("cost_usd")
 
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  goal Goal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  user User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  goal Goal? @relation(fields: [goal_id], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@index([userId, createdAt])
+  @@index([user_id, created_at])
+  @@map("future_scenarios")
 }
 
 model Goal {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String   @db.VarChar(200)
-  description String   @db.Text
-  // daily, weekly, monthly, quarterly, yearly, custom
-  cadence     String   @default("weekly")
-  // numeric target if measurable
-  targetMetric String?  @db.VarChar(60)
-  targetValue Float?
-  progress    Float    @default(0)
-  achieved    Boolean  @default(false)
-  achievedAt  DateTime?
-  archived    Boolean  @default(false)
-  // Linked habit ids (just for visibility in UI, not FK)
-  habitIds    String[] @default([])
-  // UX-relevant metadata
-  color       String?  @db.VarChar(20)
+  id            String    @id @default(cuid())
+  user_id       String    @map("user_id")
+  title         String    @db.VarChar(200)
+  description   String    @db.Text
+  cadence       String    @default("weekly")
+  target_metric String?   @db.VarChar(60) @map("target_metric")
+  target_value  Float?    @map("target_value")
+  progress      Float     @default(0)
+  achieved      Boolean   @default(false)
+  achieved_at   DateTime? @map("achieved_at")
+  archived      Boolean   @default(false)
+  habit_ids     String[]  @default([]) @map("habit_ids")
+  color         String?   @db.VarChar(20)
 
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  futureScenarios FutureScenario[]
+  user             User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  future_scenarios FutureScenario[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
-  @@index([userId, archived])
+  @@index([user_id, archived])
+  @@map("goals")
 }
 
 // ---------------------------------------------------------------------------
-// AI Habit Coach: habits + daily habit logs
+// Habits
 // ---------------------------------------------------------------------------
 model Habit {
-  id          String       @id @default(cuid())
-  userId      String
-  title       String       @db.VarChar(160)
-  description String?      @db.Text
-  // daily, weekly, custom cron-ish
-  cadence     String       @default("daily")
-  // Schedule config — JSON like { daysOfWeek: [1..7], timesOfDay: ["morning"] }
-  schedule    Json         @default("{}")
-  // Adaptive plan: difficulty 1..5, the coach can auto-adjust
-  difficulty  Int          @default(3)
-  status      HabitStatus  @default(ACTIVE)
-  // Track total completions & best streak
-  totalDone   Int          @default(0)
-  bestStreak  Int          @default(0)
-  currentStreak Int        @default(0)
-  // Linked goal
-  goalId      String?
+  id             String      @id @default(cuid())
+  user_id        String      @map("user_id")
+  title          String      @db.VarChar(160)
+  description    String?     @db.Text
+  cadence        String      @default("daily")
+  schedule       Json        @default("{}")
+  difficulty     Int         @default(3)
+  status         HabitStatus @default(ACTIVE)
+  total_done     Int         @default(0) @map("total_done")
+  best_streak    Int         @default(0) @map("best_streak")
+  current_streak Int         @default(0) @map("current_streak")
+  goal_id        String?     @map("goal_id")
 
-  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
   logs HabitLog[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
-  @@index([userId, status])
+  @@index([user_id, status])
+  @@map("habits")
 }
 
 model HabitLog {
   id         String           @id @default(cuid())
-  userId     String
-  habitId    String
+  user_id    String           @map("user_id")
+  habit_id   String           @map("habit_id")
   date       DateTime         @db.Date
   completion SortOfCompletion @default(DONE)
   note       String?          @db.Text
-  // AI suggestion written that day (e.g. "skip was fine bc of sleep")
-  aiNote     String?          @db.Text
+  ai_note    String?          @db.Text @map("ai_note")
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  habit Habit @relation(fields: [habit_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@unique([habitId, date])
-  @@index([userId, date])
+  @@unique([habit_id, date])
+  @@index([user_id, date])
+  @@map("habit_logs")
 }
 
 // ---------------------------------------------------------------------------
-// Gamification: achievements, weekly missions, seasonal rewards
+// Gamification
 // ---------------------------------------------------------------------------
 model UserAchievement {
-  id        String          @id @default(cuid())
-  userId    String
-  kind      AchievementKind
-  // XP reward at time of unlock (snapshot, can change later w/o affecting)
-  xpAwarded Int             @default(0)
-  metadata  Json            @default("{}")
+  id         String          @id @default(cuid())
+  user_id    String          @map("user_id")
+  kind       AchievementKind
+  xp_awarded Int             @default(0) @map("xp_awarded")
+  metadata   Json            @default("{}")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  unlockedAt DateTime @default(now())
+  unlocked_at DateTime @default(now()) @map("unlocked_at")
 
-  @@unique([userId, kind])
-  @@index([userId])
+  @@unique([user_id, kind])
+  @@index([user_id])
+  @@map("user_achievements")
 }
 
 model UserMission {
-  id          String   @id @default(cuid())
-  userId      String
-  // Stable mission id (e.g. "2026-w28-streak")
-  missionKey  String   @db.VarChar(60)
-  title       String   @db.VarChar(160)
-  description String   @db.Text
-  // Type discriminator: streak, habit_count, reflection_count, etc.
-  type        String   @db.VarChar(40)
-  target      Int      @default(1)
-  progress    Int      @default(0)
-  completed   Boolean  @default(false)
-  claimed     Boolean  @default(false)
-  // XP awarded when claimed
-  xpReward    Int      @default(0)
-  // ISO week anchor (e.g. 2026-W28)
-  weekKey     String   @db.VarChar(10)
+  id          String  @id @default(cuid())
+  user_id     String  @map("user_id")
+  mission_key String  @db.VarChar(60) @map("mission_key")
+  title       String  @db.VarChar(160)
+  description String  @db.Text
+  type        String  @db.VarChar(40)
+  target      Int     @default(1)
+  progress    Int     @default(0)
+  completed   Boolean @default(false)
+  claimed     Boolean @default(false)
+  xp_reward   Int     @default(0) @map("xp_reward")
+  week_key    String  @db.VarChar(10) @map("week_key")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
-  @@unique([userId, missionKey])
-  @@index([userId, weekKey])
+  @@unique([user_id, mission_key])
+  @@index([user_id, week_key])
+  @@map("user_missions")
 }
 
 model SeasonProgress {
-  id        String     @id @default(cuid())
-  userId    String
-  season    SeasonName
-  year      Int
-  xpThisSeason Int     @default(0)
-  tierReached  Int      @default(0)
-  rewardsClaimed String[] @default([])
+  id               String     @id @default(cuid())
+  user_id          String     @map("user_id")
+  season           SeasonName
+  year             Int
+  xp_this_season   Int        @default(0) @map("xp_this_season")
+  tier_reached     Int        @default(0) @map("tier_reached")
+  rewards_claimed  String[]   @default([]) @map("rewards_claimed")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
-  @@unique([userId, season, year])
-  @@index([userId])
+  @@unique([user_id, season, year])
+  @@index([user_id])
+  @@map("season_progress")
 }
 
 // ---------------------------------------------------------------------------
-// Share Cards: rendered cards with social previews
+// Share Cards
 // ---------------------------------------------------------------------------
 model ShareCard {
-  id               String       @id @default(cuid())
-  userId           String
-  profileVersionId String?
-  // Title, theme, format ('square'|'portrait'|'wide')
-  title           String       @db.VarChar(120)
-  format          String       @default("square")
-  accent          String       @db.VarChar(20)
-  // Public slug for shareable URL
-  shareId         String       @unique @default(cuid())
-  // Pre-signed URL or local path to rendered PNG/SVG
-  imageUrl        String?      @db.VarChar(2048)
-  // JSON snapshot of what's on card (for re-render & accessibility alt)
-  payload         Json         @default("{}")
-  // Optional: where shared to (for analytics)
-  sharedTo         String[]    @default([])
+  id                 String  @id @default(cuid())
+  user_id            String  @map("user_id")
+  profile_version_id String? @map("profile_version_id")
+  title              String  @db.VarChar(120)
+  format             String  @default("square")
+  accent             String  @db.VarChar(20)
+  share_id           String  @unique @default(cuid()) @map("share_id")
+  image_url          String? @db.VarChar(2048) @map("image_url")
+  payload            Json    @default("{}")
+  shared_to          String[] @default([]) @map("shared_to")
 
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  version  ProfileVersion? @relation(fields: [profileVersionId], references: [id], onDelete: SetNull)
+  user    User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  version ProfileVersion? @relation(fields: [profile_version_id], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@index([userId, createdAt])
+  @@index([user_id, created_at])
+  @@map("share_cards")
 }
 
 // ---------------------------------------------------------------------------
-// Stripe subscription
+// Stripe
 // ---------------------------------------------------------------------------
 model Subscription {
-  id                     String              @id @default(cuid())
-  userId                 String              @unique
-  stripeCustomerId       String              @unique
-  stripeSubscriptionId  String?             @unique
-  stripePriceId          String?             @db.VarChar(200)
-  status                 SubscriptionStatus @default(TRIALING)
-  // current_period from stripe
-  currentPeriodStart     DateTime?
-  currentPeriodEnd       DateTime?
-  cancelAt               DateTime?
-  canceledAt             DateTime?
+  id                    String             @id @default(cuid())
+  user_id               String             @unique @map("user_id")
+  stripe_customer_id    String             @unique @map("stripe_customer_id")
+  stripe_subscription_id String?           @unique @map("stripe_subscription_id")
+  stripe_price_id       String?            @db.VarChar(200) @map("stripe_price_id")
+  status                SubscriptionStatus @default(TRIALING)
+  current_period_start  DateTime?          @map("current_period_start")
+  current_period_end    DateTime?          @map("current_period_end")
+  cancel_at             DateTime?          @map("cancel_at")
+  canceled_at           DateTime?          @map("canceled_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
   @@index([status])
+  @@map("subscriptions")
 }
 
 // ---------------------------------------------------------------------------
-// AI Jobs: queue table for long-running AI work (report gen, weekly digest)
+// AI Jobs
 // ---------------------------------------------------------------------------
 model AIJob {
-  id         String     @id @default(cuid())
-  userId     String
-  type       String     @db.VarChar(60)  // ("generateReport", "weeklyDigest", …)
-  state      AIJobState @default(QUEUED)
-  payload    Json       @default("{}")
-  result     Json?
-  error      String?    @db.Text
-  attempts   Int        @default(0)
-  // Exponential backoff: nextAttemptAt = now + 2^attempts * jitter
-  nextAttemptAt DateTime @default(now())
+  id              String     @id @default(cuid())
+  user_id         String     @map("user_id")
+  type            String     @db.VarChar(60)
+  state           AIJobState @default(QUEUED)
+  payload         Json       @default("{}")
+  result          Json?
+  error           String?    @db.Text
+  attempts        Int        @default(0)
+  next_attempt_at DateTime   @default(now()) @map("next_attempt_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
 
-  @@index([state, nextAttemptAt])
-  @@index([userId, type])
+  @@index([state, next_attempt_at])
+  @@index([user_id, type])
+  @@map("ai_jobs")
 }
 
 // ---------------------------------------------------------------------------
-// AuditLog: security & compliance trail
+// Audit Log
 // ---------------------------------------------------------------------------
 model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?  // nullable for system events
-  action    String   @db.VarChar(80)        // e.g. "report.generate", "auth.login"
-  // before/after JSON only for sensitive resource changes
-  diff      Json     @default("{}")
-  ip        String?  @db.VarChar(45)
-  userAgent String?  @db.VarChar(512)
+  id         String  @id @default(cuid())
+  user_id    String? @map("user_id")
+  action     String  @db.VarChar(80)
+  diff       Json    @default("{}")
+  ip         String? @db.VarChar(45)
+  user_agent String? @db.VarChar(512) @map("user_agent")
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@index([userId, createdAt])
-  @@index([action, createdAt])
+  @@index([user_id, created_at])
+  @@index([action, created_at])
+  @@map("audit_logs")
 }
 
 // ---------------------------------------------------------------------------
-// Notifications: in-app bell + optional email
+// Notifications
 // ---------------------------------------------------------------------------
 model Notification {
-  id      String   @id @default(cuid())
-  userId  String
-  type    String   @db.VarChar(60)
-  title   String   @db.VarChar(200)
-  body    String   @db.Text
-  href    String?  @db.VarChar(500)
-  read    Boolean  @default(false)
+  id      String  @id @default(cuid())
+  user_id String  @map("user_id")
+  type    String  @db.VarChar(60)
+  title   String  @db.VarChar(200)
+  body    String  @db.Text
+  href    String? @db.VarChar(500)
+  read    Boolean @default(false)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@index([userId, read, createdAt])
+  @@index([user_id, read, created_at])
+  @@map("notifications")
 }
 
 // ---------------------------------------------------------------------------
-// Feature flags per-user (overrides global defaults)
+// Feature Flags
 // ---------------------------------------------------------------------------
 model UserFeatureFlag {
   id      String  @id @default(cuid())
-  userId  String
+  user_id String  @map("user_id")
   flag    String  @db.VarChar(60)
   value   Boolean @default(false)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")
 
-  @@unique([userId, flag])
+  @@unique([user_id, flag])
+  @@map("user_feature_flags")
 }

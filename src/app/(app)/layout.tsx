@@ -9,7 +9,13 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  let session = null;
+
+  try {
+    session = await auth();
+  } catch {
+    // DB not available in dev — fall through to redirect
+  }
 
   if (!session?.user) {
     redirect("/login");
